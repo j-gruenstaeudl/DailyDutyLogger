@@ -1,0 +1,183 @@
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import datetime
+
+def create_driver_logbook_diagram(log_data):
+    """
+    Creates a driver's logbook diagram similar to the provided image.
+
+    Args:
+        log_data (dict): A dictionary containing logbook data for each day.
+                         Example structure:
+                         {
+                             'Monday': {
+                                 'activities': [
+                                     {'type': 'A', 'start': 0, 'end': 8, 'note': 'Preperation'},
+                                     {'type': 'F', 'start': 8, 'end': 12, 'note': 'Route A'},
+                                     {'type': 'P', 'start': 12, 'end': 13, 'note': 'Lunch break'},
+                                     {'type': 'F', 'start': 13, 'end': 17, 'note': 'Route B'},
+                                     {'type': 'A', 'start': 17, 'end': 18, 'note': 'Post-trip check'}
+                                 ],
+                                 'total_hours': 12,
+                                 'km': 396
+                             },
+                             'Tuesday': { ... },
+                             # ... and so on for other days
+                         }
+    """
+    days_of_week = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    num_days = len(days_of_week)
+
+    fig, axes = plt.subplots(num_days, 1, figsize=(12, 2.5 * num_days), sharex=True) # Adjust figsize as needed
+
+    # Colors for different activity types
+    colors = {
+        'F': 'red',     # Fahren (Driving)
+        'P': 'yellow',  # Pause (Break)
+        'A': 'blue'     # Arbeit (Work)
+    }
+
+    # Header information (can be passed as arguments or defined globally)
+    week_info = {
+        'date_range': '24.02.2025 bis 28.02.2025',
+        'monteur': 'Hans Mustermann',
+        'week_number': 9
+    }
+
+    # Add a main title to the figure
+    fig.suptitle(
+        f"Wochenbericht vom {week_info['date_range']}   Monteur: {week_info['monteur']}   Woche: {week_info['week_number']}\n"
+        f"Bitte um Einhaltung der gesetzlich vorgeschriebenen Mittagspause von 30 min nach 6 Arbeitsstunden!",
+        fontsize=14, y=0.98
+    )
+
+
+    total_weekly_hours = 0
+
+    for i, day in enumerate(days_of_week):
+        ax = axes[i]
+        daily_data = log_data.get(day, {'activities': [], 'total_hours': 0, 'km': 0})
+
+        # Set up the Y-axis for activity types
+        ax.set_yticks([0, 1, 2])
+        ax.set_yticklabels(['F', 'P', 'A'])
+        ax.set_ylim(-0.5, 2.5) # Adjust y-limits to center the bars
+
+        # Set up the X-axis for hours
+        ax.set_xticks(range(0, 25, 1)) # Hours from 0 to 24
+        ax.set_xlim(0, 24)
+        ax.tick_params(axis='x', length=4, labelbottom=True) # Show ticks and labels for x-axis
+
+        ax.grid(axis='x', linestyle='--', alpha=0.7) # Grid lines for hours
+
+        # Plot activities
+        for activity in daily_data['activities']:
+            start_time = activity['start']
+            end_time = activity['end']
+            activity_type = activity['type']
+            note = activity.get('note', '')
+
+            # Map activity type to y-position
+            y_pos = {'F': 0, 'P': 1, 'A': 2}[activity_type]
+
+            # Plot the bar
+            ax.barh(y_pos, end_time - start_time, left=start_time, height=0.6,
+                    color=colors.get(activity_type, 'gray'), edgecolor='black', linewidth=0.5)
+
+            # Add notes
+            if note:
+                ax.text(start_time + (end_time - start_time) / 2, y_pos + 0.3, note,
+                        ha='center', va='bottom', fontsize=8, color='black')
+
+        # Add day label on the left
+        ax.text(-1.5, 1, day, va='center', ha='right', fontsize=10, weight='bold', rotation=90) # Rotate for vertical text
+
+        # Add daily summary (total hours and kilometers)
+        ax.text(24.5, 1.5, f"Std. {daily_data['total_hours']}", va='center', ha='left', fontsize=10)
+        ax.text(24.5, 0.5, f"km {daily_data['km']}", va='center', ha='left', fontsize=10)
+
+        total_weekly_hours += daily_data['total_hours']
+
+        # Remove spines
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+
+
+    # Add weekly summary at the bottom
+    fig.text(0.85, 0.02, f"Gesamt-Stunden: {total_weekly_hours}", ha='right', va='center', fontsize=12, weight='bold')
+
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95]) # Adjust layout to make space for suptitle and bottom text
+    plt.show()
+
+# Example Usage with some dummy data
+example_log_data = {
+    'Monday': {
+        'activities': [
+            {'type': 'A', 'start': 0, 'end': 8, 'note': 'Preparation'},
+            {'type': 'F', 'start': 8, 'end': 12, 'note': 'Route A'},
+            {'type': 'P', 'start': 12, 'end': 13, 'note': 'Lunch break'},
+            {'type': 'F', 'start': 13, 'end': 17, 'note': 'Route B'},
+            {'type': 'A', 'start': 17, 'end': 18, 'note': 'Post-trip check'}
+        ],
+        'total_hours': 18, # This should be calculated from activities in a real scenario
+        'km': 396
+    },
+    'Tuesday': {
+        'activities': [
+            {'type': 'A', 'start': 7, 'end': 8, 'note': 'Pre-trip check'},
+            {'type': 'F', 'start': 8, 'end': 12, 'note': 'Delivery 1'},
+            {'type': 'P', 'start': 12, 'end': 12.5, 'note': 'Short break'},
+            {'type': 'F', 'start': 12.5, 'end': 16, 'note': 'Delivery 2'},
+            {'type': 'A', 'start': 16, 'end': 17, 'note': 'Paperwork'}
+        ],
+        'total_hours': 10,
+        'km': 361
+    },
+    'Wednesday': {
+        'activities': [
+            {'type': 'A', 'start': 6, 'end': 7.5, 'note': 'Loading'},
+            {'type': 'F', 'start': 7.5, 'end': 12.5, 'note': 'Long haul'},
+            {'type': 'P', 'start': 12.5, 'end': 13.5, 'note': 'Mandatory break'},
+            {'type': 'F', 'start': 13.5, 'end': 16.5, 'note': 'Unloading'},
+            {'type': 'A', 'start': 16.5, 'end': 17.5, 'note': 'Cleaning'}
+        ],
+        'total_hours': 11.5,
+        'km': 250
+    },
+    'Thursday': {
+        'activities': [
+            {'type': 'A', 'start': 7, 'end': 8},
+            {'type': 'F', 'start': 8, 'end': 12, 'note': 'City routes'},
+            {'type': 'P', 'start': 12, 'end': 13},
+            {'type': 'F', 'start': 13, 'end': 17, 'note': 'Suburban delivery'},
+            {'type': 'A', 'start': 17, 'end': 18}
+        ],
+        'total_hours': 12,
+        'km': 388
+    },
+    'Friday': {
+        'activities': [
+            {'type': 'A', 'start': 8, 'end': 9},
+            {'type': 'F', 'start': 9, 'end': 12},
+            {'type': 'P', 'start': 12, 'end': 12.5},
+            {'type': 'F', 'start': 12.5, 'end': 15},
+            {'type': 'A', 'start': 15, 'end': 16}
+        ],
+        'total_hours': 7,
+        'km': 376
+    },
+    'Saturday': {
+        'activities': [], # No activities for Saturday
+        'total_hours': 0,
+        'km': 0
+    },
+    'Sunday': {
+        'activities': [], # No activities for Sunday
+        'total_hours': 0,
+        'km': 0
+    }
+}
+
+create_driver_logbook_diagram(example_log_data)
