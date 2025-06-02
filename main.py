@@ -1,10 +1,10 @@
 import matplotlib.pyplot as plt
 import datetime
 
-def create_driver_logbook_line_diagram_ondemand(log_data):
+def create_driver_logbook_step_diagram(log_data):
     """
-    Creates a driver's logbook diagram using line segments that only appear
-    where an activity is defined, starting at the first entry's time.
+    Creates a driver's logbook diagram using connected line segments (step plot)
+    where lines start at the first entry's time and connect transitions.
 
     Args:
         log_data (dict): A dictionary containing logbook data for each day.
@@ -47,26 +47,42 @@ def create_driver_logbook_line_diagram_ondemand(log_data):
         ax = axes[i]
         daily_data = log_data.get(day, {'activities': [], 'total_hours': 0, 'km': 0})
 
-        # Sort activities by start time to ensure correct plotting order and handling notes
+        # Sort activities by start time to ensure correct plotting order
         sorted_activities = sorted(daily_data['activities'], key=lambda x: x['start'])
 
-        # Plot activities as individual line segments
-        for activity in sorted_activities:
+        # Plot activities and connect transitions
+        for j, activity in enumerate(sorted_activities):
             start_time = activity['start']
             end_time = activity['end']
             activity_type = activity['type']
             note = activity.get('note', '')
 
-            y_pos = activity_mapping[activity_type]
+            y_pos_current = activity_mapping[activity_type]
 
             # Plot the horizontal line segment for the activity duration
-            ax.plot([start_time, end_time], [y_pos, y_pos],
-                    color=colors.get(activity_type, 'gray'), linewidth=4, solid_capstyle='butt') # 'butt' for sharp ends
+            ax.plot([start_time, end_time], [y_pos_current, y_pos_current],
+                    color=colors.get(activity_type, 'gray'), linewidth=4, solid_capstyle='butt')
 
             # Add notes
             if note:
-                ax.text(start_time + (end_time - start_time) / 2, y_pos + 0.3, note,
+                ax.text(start_time + (end_time - start_time) / 2, y_pos_current + 0.3, note,
                         ha='center', va='bottom', fontsize=8, color='black')
+
+            # Check for next activity to draw connecting vertical line
+            if j < len(sorted_activities) - 1:
+                next_activity = sorted_activities[j+1]
+                next_start_time = next_activity['start']
+                y_pos_next = activity_mapping[next_activity['type']]
+
+                # If the next activity starts exactly where the current one ends
+                if end_time == next_start_time:
+                    # Draw a vertical line from current activity's end to next activity's start
+                    # Use a neutral color like black for the connecting line
+                    ax.plot([end_time, next_start_time], [y_pos_current, y_pos_next],
+                            color='black', linewidth=1.5, linestyle='-')
+                # If there's a gap between activities, you might choose to draw a vertical line
+                # down to 'off-duty' or nothing. For now, we only connect direct transitions.
+
 
         # Set up the Y-axis for activity types
         ax.set_yticks(list(activity_mapping.values()))
@@ -171,4 +187,4 @@ example_log_data = {
     }
 }
 
-create_driver_logbook_line_diagram_ondemand(example_log_data)
+create_driver_logbook_step_diagram(example_log_data)
