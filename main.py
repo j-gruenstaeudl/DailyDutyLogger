@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import datetime
+import numpy as np # Import numpy for arange
 
 def create_driver_logbook_step_diagram(log_data):
     """
@@ -80,8 +81,6 @@ def create_driver_logbook_step_diagram(log_data):
                     # Use a neutral color like black for the connecting line
                     ax.plot([end_time, next_start_time], [y_pos_current, y_pos_next],
                             color='black', linewidth=1.5, linestyle='-')
-                # If there's a gap between activities, you might choose to draw a vertical line
-                # down to 'off-duty' or nothing. For now, we only connect direct transitions.
 
 
         # Set up the Y-axis for activity types
@@ -89,12 +88,18 @@ def create_driver_logbook_step_diagram(log_data):
         ax.set_yticklabels(list(activity_mapping.keys()))
         ax.set_ylim(-0.5, len(activity_mapping) - 0.5) # Adjust y-limits to center labels
 
-        # Set up the X-axis for hours
-        ax.set_xticks(range(0, 25, 1)) # Hours from 0 to 24
+        # Set up the X-axis for hours with quarter-hour steps
+        # This will set major ticks at every hour (0, 1, 2, ..., 24)
+        ax.set_xticks(range(0, 25, 1))
+        # This will add minor ticks every quarter hour
+        ax.set_xticks(np.arange(0, 24.25, 0.25), minor=True) # Ensure it goes up to 24.0
         ax.set_xlim(0, 24)
-        ax.tick_params(axis='x', length=4, labelbottom=True) # Show ticks and labels for x-axis
+        ax.tick_params(axis='x', length=4, labelbottom=True) # Show major ticks and labels for x-axis
 
-        ax.grid(axis='x', linestyle='--', alpha=0.7) # Grid lines for hours
+        # Add grid lines for major ticks (full hours) and minor ticks (quarter hours)
+        ax.grid(axis='x', which='major', linestyle='-', alpha=0.7) # Solid lines for hours
+        ax.grid(axis='x', which='minor', linestyle=':', alpha=0.5) # Dotted lines for quarter hours
+
 
         # Add day label on the left
         ax.text(-1.5, (len(activity_mapping) - 1) / 2, day, va='center', ha='right', fontsize=10, weight='bold', rotation=90)
@@ -122,11 +127,12 @@ def create_driver_logbook_step_diagram(log_data):
 example_log_data = {
     'Monday': {
         'activities': [
-            {'type': 'A', 'start': 0, 'end': 8, 'note': 'Preparation'},
-            {'type': 'F', 'start': 8, 'end': 12, 'note': 'Route A'},
-            {'type': 'P', 'start': 12, 'end': 13, 'note': 'Lunch break'},
-            {'type': 'F', 'start': 13, 'end': 17, 'note': 'Route B'},
-            {'type': 'A', 'start': 17, 'end': 18, 'note': 'Post-trip check'}
+            {'type': 'F', 'start': 6, 'end': 8.5, 'note': 'Route A'},
+            {'type': 'A', 'start': 8.5, 'end': 9.5, 'note': 'Work 1'},
+            {'type': 'F', 'start': 9.5, 'end': 11.5, 'note': 'Route B'},
+            {'type': 'P', 'start': 11.5, 'end': 12, 'note': 'brake'},
+            {'type': 'A', 'start': 12, 'end': 14, 'note': 'Work 3'},
+            {'type': 'F', 'start': 14, 'end':16.5, 'note': 'drive home'}
         ],
         'total_hours': 18,
         'km': 396
