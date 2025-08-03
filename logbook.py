@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import datetime
 import numpy as np
 
-import weeklylog # Import numpy for arange
+from weeklylog import weeklylog # Import numpy for arange
 
 class logbook:
     def __init__(self):
@@ -18,4 +18,5 @@ class logbook:
             'P': 'yellow',
             'A': 'blue'
         }
-        self.weeklylog = weeklylog()
+        
+        self.weeklylog = weeklylog("03.05.25 bis 04.05.25", "Manfred", 31)

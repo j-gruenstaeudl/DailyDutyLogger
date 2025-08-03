@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import datetime
 import numpy as np # Import numpy for arange
+from logbook import logbook
 
 def create_driver_logbook_step_diagram(log_data):
     """
@@ -11,40 +12,20 @@ def create_driver_logbook_step_diagram(log_data):
         log_data (dict): A dictionary containing logbook data for each day.
                          (Same structure as previous examples)
     """
-    days_of_week = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    num_days = len(days_of_week)
+    logb = logbook()
 
-    fig, axes = plt.subplots(num_days, 1, figsize=(12, 2.5 * num_days), sharex=True)
+    fig, axes = plt.subplots(logb.num_days, 1, figsize=(12, 2.5 * logb.num_days), sharex=True)
 
-    # Map activity types to numerical values for plotting
-    activity_mapping = {
-        'F': 0, # Driving
-        'P': 1, # Break
-        'A': 2  # Work
-    }
-    # Colors for different activity types
-    colors = {
-        'F': 'red',
-        'P': 'yellow',
-        'A': 'blue'
-    }
-
-    # Header information
-    week_info = {
-        'date_range': '24.02.2025 bis 28.02.2025',
-        'monteur': 'Hans Mustermann',
-        'week_number': 9
-    }
 
     fig.suptitle(
-        f"Wochenbericht vom {week_info['date_range']}   Monteur: {week_info['monteur']}   Woche: {week_info['week_number']}\n"
+        f"Wochenbericht vom {logb.weeklylog.date_range}   Monteur: {logb.weeklylog.monteur}   Woche: {logb.weeklylog.week_number}\n"
         f"Bitte um Einhaltung der gesetzlich vorgeschriebenen Mittagspause von 30 min nach 6 Arbeitsstunden!",
         fontsize=14, y=0.98
     )
 
     total_weekly_hours = 0
 
-    for i, day in enumerate(days_of_week):
+    for i, day in enumerate(logb.days_of_work):
         ax = axes[i]
         daily_data = log_data.get(day, {'activities': [], 'total_hours': 0, 'km': 0})
 
@@ -58,11 +39,11 @@ def create_driver_logbook_step_diagram(log_data):
             activity_type = activity['type']
             note = activity.get('note', '')
 
-            y_pos_current = activity_mapping[activity_type]
+            y_pos_current = logb.activity_mapping[activity_type]
 
             # Plot the horizontal line segment for the activity duration
             ax.plot([start_time, end_time], [y_pos_current, y_pos_current],
-                    color=colors.get(activity_type, 'gray'), linewidth=4, solid_capstyle='butt')
+                    color=logb.colors.get(activity_type, 'gray'), linewidth=4, solid_capstyle='butt')
 
             # Add notes
             if note:
@@ -73,7 +54,7 @@ def create_driver_logbook_step_diagram(log_data):
             if j < len(sorted_activities) - 1:
                 next_activity = sorted_activities[j+1]
                 next_start_time = next_activity['start']
-                y_pos_next = activity_mapping[next_activity['type']]
+                y_pos_next = logb.activity_mapping[next_activity['type']]
 
                 # If the next activity starts exactly where the current one ends
                 if end_time == next_start_time:
@@ -84,9 +65,9 @@ def create_driver_logbook_step_diagram(log_data):
 
 
         # Set up the Y-axis for activity types
-        ax.set_yticks(list(activity_mapping.values()))
-        ax.set_yticklabels(list(activity_mapping.keys()))
-        ax.set_ylim(-0.5, len(activity_mapping) - 0.5) # Adjust y-limits to center labels
+        ax.set_yticks(list(logb.activity_mapping.values()))
+        ax.set_yticklabels(list(logb.activity_mapping.keys()))
+        ax.set_ylim(-0.5, len(logb.activity_mapping) - 0.5) # Adjust y-limits to center labels
 
         # Set up the X-axis for hours with quarter-hour steps
         # This will set major ticks at every hour (0, 1, 2, ..., 24)
@@ -102,11 +83,11 @@ def create_driver_logbook_step_diagram(log_data):
 
 
         # Add day label on the left
-        ax.text(-1.5, (len(activity_mapping) - 1) / 2, day, va='center', ha='right', fontsize=10, weight='bold', rotation=90)
+        ax.text(-1.5, (len(logb.activity_mapping) - 1) / 2, day, va='center', ha='right', fontsize=10, weight='bold', rotation=90)
 
         # Add daily summary (total hours and kilometers)
-        ax.text(24.5, (len(activity_mapping) * 2 / 3) - 0.5, f"Std. {daily_data['total_hours']}", va='center', ha='left', fontsize=10)
-        ax.text(24.5, (len(activity_mapping) * 1 / 3) - 0.5, f"km {daily_data['km']}", va='center', ha='left', fontsize=10)
+        ax.text(24.5, (len(logb.activity_mapping) * 2 / 3) - 0.5, f"Std. {daily_data['total_hours']}", va='center', ha='left', fontsize=10)
+        ax.text(24.5, (len(logb.activity_mapping) * 1 / 3) - 0.5, f"km {daily_data['km']}", va='center', ha='left', fontsize=10)
 
         total_weekly_hours += daily_data['total_hours']
 
@@ -189,7 +170,7 @@ example_log_data = {
     'Sunday': {
         'activities': [],
         'total_hours': 0,
-        'km': 0
+        'km': 1
     }
 }
 
