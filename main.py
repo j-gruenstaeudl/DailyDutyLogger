@@ -1,177 +1,590 @@
+import customtkinter as ctk
+from collections import defaultdict
+import json
+import tkinter as tk
+from tkinter import filedialog
+from tkinter import messagebox
 import matplotlib.pyplot as plt
 import datetime
-import numpy as np # Import numpy for arange
-from logbook import logbook
+import numpy as np
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-def create_driver_logbook_step_diagram(log_data):
+# Set the appearance mode and default color theme
+ctk.set_appearance_mode("System")  # Modes: "System", "Dark", "Light"
+ctk.set_default_color_theme("blue")  # Themes: "blue", "dark-blue", "green"
+
+class ActivityLogApp(ctk.CTk):
     """
-    Creates a driver's logbook diagram using connected line segments (step plot)
-    where lines start at the first entry's time and connect transitions.
+    A CustomTkinter application for logging daily activities.
 
-    Args:
-        log_data (dict): A dictionary containing logbook data for each day.
-                         (Same structure as previous examples)
+    This application provides a tab-based interface for each day of the week,
+    allowing users to input total hours, kilometers, and a list of activities.
+    Each activity has a type, start time, end time, and an optional note.
+    The UI for activities is dynamic, allowing users to add or remove entries.
+    It now includes a feature to calculate total working hours, excluding breaks,
+    both for a single day and for the entire week.
+    The UI has been translated to German and now includes the functionality to
+    create a matplotlib diagram of the weekly logbook data.
     """
-    logb = logbook()
 
-    fig, axes = plt.subplots(logb.num_days, 1, figsize=(12, 2.5 * logb.num_days), sharex=True)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.title("Tägliches Aktivitäten-Protokoll")
+        self.geometry("1100x750")
+
+        # Configure grid for the main window
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+
+        # German day names mapping
+        self.days_of_week_en = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        self.days_of_week_de = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
+        self.day_mapping = dict(zip(self.days_of_week_en, self.days_of_week_de))
+        
+        # Create a reverse mapping for easy lookup
+        self.reverse_day_mapping = {v: k for k, v in self.day_mapping.items()}
+        self.current_day_de = "Montag"
+
+        # Dictionaries to hold widget references for each day
+        self.day_widgets = defaultdict(dict)
+        self.activity_widgets = defaultdict(list)
+
+        # Plotting-related properties
+        self.activity_mapping = {'A': 2, 'F': 1, 'P': 0}
+        self.colors = {'A': '#ff7f0e', 'F': '#1f77b4', 'P': '#d62728'}
+        
+        # Initialize date variables
+        self.monteur_name = ""
+        self.week_number = ""
+        self.date_range = ""
+        
+        # Frame for metadata inputs (Monteur, Woche)
+        self.metadata_frame = ctk.CTkFrame(self)
+        self.metadata_frame.grid(row=0, column=0, padx=20, pady=(20, 0), sticky="ew")
+        self.metadata_frame.grid_columnconfigure((0, 1, 2, 3, 4, 5), weight=1)
+
+        ctk.CTkLabel(self.metadata_frame, text="Monteur:").grid(row=0, column=0, padx=(10, 5), pady=10, sticky="w")
+        self.monteur_entry = ctk.CTkEntry(self.metadata_frame, placeholder_text="Name")
+        self.monteur_entry.grid(row=0, column=1, padx=5, pady=10, sticky="ew")
+
+        ctk.CTkLabel(self.metadata_frame, text="Startdatum (Montag):").grid(row=0, column=2, padx=(10, 5), pady=10, sticky="w")
+        self.start_date_entry = ctk.CTkEntry(self.metadata_frame, placeholder_text="TT.MM.JJJJ")
+        self.start_date_entry.grid(row=0, column=3, padx=5, pady=10, sticky="ew")
+        self.start_date_entry.bind("<FocusOut>", self.update_week_info_from_date)
+
+        self.date_range_label = ctk.CTkLabel(self.metadata_frame, text="Datumsbereich:", font=ctk.CTkFont(size=12))
+        self.date_range_label.grid(row=0, column=4, padx=(10, 5), pady=10, sticky="w")
+
+        self.week_number_label = ctk.CTkLabel(self.metadata_frame, text="Kalenderwoche:", font=ctk.CTkFont(size=12))
+        self.week_number_label.grid(row=0, column=5, padx=(10, 5), pady=10, sticky="w")
+        
+        # TabView for different days
+        self.day_tabs = ctk.CTkTabview(self, width=1000, height=600)
+        self.day_tabs.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
+
+        # Create tabs for each day of the week with German names
+        for day_en, day_de in self.day_mapping.items():
+            self.day_tabs.add(day_de)
+            self.day_tabs.tab(day_de).grid_columnconfigure(0, weight=1)
+            self.create_day_tab_content(self.day_tabs.tab(day_de), day_en)
+
+        # Set the default tab to 'Montag'
+        self.day_tabs.set(self.current_day_de)
+
+        # Add buttons and output labels to the bottom of the main window
+        self.button_frame = ctk.CTkFrame(self)
+        self.button_frame.grid(row=2, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.button_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+
+        # New button to load from a JSON file
+        self.load_json_button = ctk.CTkButton(self.button_frame, text="Daten aus JSON laden", command=self.load_from_json)
+        self.load_json_button.grid(row=0, column=0, padx=10, pady=10)
+
+        self.save_button = ctk.CTkButton(self.button_frame, text="Daten speichern und ausgeben", command=self.save_and_print_data)
+        self.save_button.grid(row=0, column=1, padx=10, pady=10)
+        
+        self.save_json_button = ctk.CTkButton(self.button_frame, text="In JSON-Datei speichern", command=self.save_to_json)
+        self.save_json_button.grid(row=0, column=2, padx=10, pady=10)
+
+        self.clear_button = ctk.CTkButton(self.button_frame, text="Alle Daten löschen", command=self.clear_all_data)
+        self.clear_button.grid(row=0, column=3, padx=10, pady=10)
+
+        # Button for calculating total working hours for the week
+        self.calculate_week_button = ctk.CTkButton(self.button_frame, text="Wochen-Arbeitsstunden berechnen", command=self.calculate_all_working_hours)
+        self.calculate_week_button.grid(row=0, column=4, padx=10, pady=10)
+        
+        # New button to create the diagram
+        self.plot_button = ctk.CTkButton(self.button_frame, text="Diagramm erstellen", command=self.create_and_show_diagram)
+        self.plot_button.grid(row=0, column=5, padx=10, pady=10)
+
+        self.total_hours_label = ctk.CTkLabel(self.button_frame, text="Gesamte Arbeitsstunden: 0.0", font=ctk.CTkFont(size=16, weight="bold"))
+        self.total_hours_label.grid(row=1, column=0, columnspan=6, padx=10, pady=(0, 10))
+
+    def update_week_info_from_date(self, event=None):
+        """
+        Parses the user-inputted date, validates it as a Monday, and calculates
+        and displays the corresponding date range and calendar week.
+        """
+        date_str = self.start_date_entry.get()
+        try:
+            start_date = datetime.datetime.strptime(date_str, "%d.%m.%Y").date()
+            if start_date.weekday() != 0: # 0 is Monday
+                messagebox.showerror("Fehler", "Das eingegebene Datum ist kein Montag. Bitte geben Sie einen Montag ein.")
+                return
+            
+            end_date = start_date + datetime.timedelta(days=6)
+            
+            self.date_range = f"{start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}"
+            self.week_number = start_date.isocalendar()[1]
+            
+            self.date_range_label.configure(text=f"Datumsbereich: {self.date_range}")
+            self.week_number_label.configure(text=f"Kalenderwoche: {self.week_number}")
+
+        except ValueError:
+            # Handle invalid date format or empty entry
+            self.date_range_label.configure(text="Datumsbereich: Ungültiges Format")
+            self.week_number_label.configure(text="Kalenderwoche: Ungültiges Format")
+            self.date_range = ""
+            self.week_number = ""
+
+    def create_day_tab_content(self, parent_frame, day_en):
+        """
+        Populates a single day's tab with input widgets.
+        
+        Args:
+            parent_frame (ctk.CTkFrame): The parent frame (the tab).
+            day_en (str): The English day of the week (used for data keys).
+        """
+        # Get the German day name from the mapping
+        day_de = self.day_mapping.get(day_en, day_en)
+
+        # Create a scrollable frame for activities
+        scrollable_frame = ctk.CTkScrollableFrame(parent_frame)
+        scrollable_frame.grid(row=2, column=0, columnspan=2, padx=10, pady=(10, 0), sticky="nsew")
+        scrollable_frame.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        self.activity_widgets[day_en] = {'frame': scrollable_frame, 'entries': []}
+
+        # Header for the inputs
+        ctk.CTkLabel(parent_frame, text=f"{day_de} Protokolleintrag", font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, padx=10, pady=(10, 5), sticky="w")
+        
+        # Frame for total hours and km
+        info_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
+        info_frame.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
+        info_frame.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+
+        ctk.CTkLabel(info_frame, text="Gesamtstunden:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        total_hours_entry = ctk.CTkEntry(info_frame)
+        total_hours_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        # Bind the update function to the FocusOut event for live updates
+        total_hours_entry.bind("<FocusOut>", lambda event, d=day_en: self.calculate_day_working_hours(d))
+        self.day_widgets[day_en]['total_hours_entry'] = total_hours_entry
+
+        ctk.CTkLabel(info_frame, text="Kilometer:").grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        km_entry = ctk.CTkEntry(info_frame)
+        km_entry.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
+        self.day_widgets[day_en]['km_entry'] = km_entry
+        
+        # New button to manually calculate hours for the current day
+        calculate_day_button = ctk.CTkButton(info_frame, text="Tagessumme berechnen", command=lambda d=day_en: self.calculate_day_working_hours(d))
+        calculate_day_button.grid(row=0, column=4, padx=5, pady=5, sticky="ew")
+        
+        # Add a button to add a new activity
+        add_button = ctk.CTkButton(parent_frame, text="Aktivität hinzufügen", command=lambda: self.add_activity_row(day_en))
+        add_button.grid(row=3, column=0, padx=10, pady=(5, 10))
+
+    def add_activity_row(self, day_en, activity_data=None):
+        """
+        Adds a new row of activity input widgets for the specified day.
+        
+        Args:
+            day_en (str): The English day of the week (used for data keys).
+            activity_data (dict, optional): Initial data for the activity.
+        """
+        container = self.activity_widgets[day_en]['frame']
+        row_count = len(self.activity_widgets[day_en]['entries'])
+
+        # Frame for a single activity row
+        activity_frame = ctk.CTkFrame(container, fg_color="transparent")
+        activity_frame.grid(row=row_count, column=0, columnspan=5, padx=5, pady=5, sticky="ew")
+        activity_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+
+        # Type dropdown
+        type_options = ['F', 'A', 'P']
+        type_dropdown = ctk.CTkOptionMenu(activity_frame, values=type_options, command=lambda value, d=day_en: self.calculate_day_working_hours(d))
+        type_dropdown.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+        
+        # Start time entry
+        start_entry = ctk.CTkEntry(activity_frame, placeholder_text="Startzeit")
+        start_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        start_entry.bind("<FocusOut>", lambda event, d=day_en: self.calculate_day_working_hours(d))
+        
+        # End time entry
+        end_entry = ctk.CTkEntry(activity_frame, placeholder_text="Endzeit")
+        end_entry.grid(row=0, column=2, padx=5, pady=5, sticky="ew")
+        end_entry.bind("<FocusOut>", lambda event, d=day_en: self.calculate_day_working_hours(d))
+        
+        # Note entry
+        note_entry = ctk.CTkEntry(activity_frame, placeholder_text="Notiz")
+        note_entry.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
+        
+        # Remove button
+        remove_button = ctk.CTkButton(activity_frame, text="X", width=30, command=lambda: self.remove_activity_row(day_en, activity_frame))
+        remove_button.grid(row=0, column=4, padx=5, pady=5)
+
+        # Populate with data if provided
+        if activity_data:
+            type_dropdown.set(activity_data.get('type', type_options[0]))
+            start_entry.insert(0, str(activity_data.get('start', '')))
+            end_entry.insert(0, str(activity_data.get('end', '')))
+            note_entry.insert(0, activity_data.get('note', ''))
+        
+        # Store all widgets for this activity row
+        activity_widgets = {
+            'frame': activity_frame,
+            'type': type_dropdown,
+            'start': start_entry,
+            'end': end_entry,
+            'note': note_entry
+        }
+        self.activity_widgets[day_en]['entries'].append(activity_widgets)
+
+        # Scroll to the bottom of the frame after adding a new row
+        container.update_idletasks()
+        
+        # Recalculate total hours for the day and the week
+        self.calculate_day_working_hours(day_en)
+
+    def remove_activity_row(self, day_en, activity_frame):
+        """
+        Removes an activity row and its associated widgets.
+        """
+        for i, activity_data in enumerate(self.activity_widgets[day_en]['entries']):
+            if activity_data['frame'] == activity_frame:
+                # Destroy all widgets in the row
+                activity_frame.destroy()
+                # Remove the entry from the list
+                del self.activity_widgets[day_en]['entries'][i]
+                break
+        
+        # Recalculate total hours for the day and the week
+        self.calculate_day_working_hours(day_en)
+
+    def calculate_day_working_hours(self, day_en):
+        """
+        Calculates the total working hours for a specific day and updates the entry box.
+        This calculation excludes break activities ('P').
+        It also triggers a recalculation of the total weekly hours.
+        """
+        total_hours = 0.0
+        for activity_entry_set in self.activity_widgets[day_en]['entries']:
+            if activity_entry_set['type'].get() != 'P':
+                try:
+                    start = float(activity_entry_set['start'].get())
+                    end = float(activity_entry_set['end'].get())
+                    if end > start:
+                        total_hours += (end - start)
+                except ValueError:
+                    continue
+        
+        # Get the German tab name from the English key
+        day_de = self.day_mapping.get(day_en)
+        current_tab_name = self.day_tabs.get()
+
+        # Only update the 'Gesamtstunden' entry for the currently active tab
+        if day_de == current_tab_name:
+            total_hours_entry = self.day_widgets[day_en].get('total_hours_entry')
+            if total_hours_entry:
+                total_hours_entry.delete(0, ctk.END)
+                total_hours_entry.insert(0, f"{total_hours:.2f}")
+
+        # Recalculate total weekly hours after any daily change
+        self.calculate_all_working_hours()
+    
+    def clear_all_data(self):
+        """
+        Clears all data from the GUI and the internal data structure.
+        """
+        for day_en in self.days_of_week_en:
+            # Clear total hours and km entries
+            total_hours_entry = self.day_widgets[day_en].get('total_hours_entry')
+            km_entry = self.day_widgets[day_en].get('km_entry')
+            
+            if total_hours_entry:
+                total_hours_entry.delete(0, ctk.END)
+            if km_entry:
+                km_entry.delete(0, ctk.END)
+            
+            # Remove all activity rows
+            for activity_data in list(self.activity_widgets[day_en]['entries']):
+                self.remove_activity_row(day_en, activity_data['frame'])
+
+        # Reset the total hours label
+        self.total_hours_label.configure(text="Gesamte Arbeitsstunden: 0.0")
+
+        # Clear metadata entries
+        self.monteur_entry.delete(0, ctk.END)
+        self.start_date_entry.delete(0, ctk.END)
+        self.date_range_label.configure(text="Datumsbereich:")
+        self.week_number_label.configure(text="Kalenderwoche:")
+
+    def load_from_json(self):
+        """
+        Opens a file dialog to let the user select a JSON file and loads its data into the app.
+        """
+        file_path = filedialog.askopenfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All Files", "*.*")],
+            title="Wählen Sie eine JSON-Datei"
+        )
+        if not file_path:
+            return  # User canceled the dialog
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                loaded_data = json.load(f)
+            
+            self.clear_all_data() # Clear existing data first
+
+            for day_en in self.days_of_week_en:
+                if day_en in loaded_data:
+                    data = loaded_data[day_en]
+
+                    # Update the total hours and km entries for the day
+                    total_hours_entry = self.day_widgets[day_en]['total_hours_entry']
+                    km_entry = self.day_widgets[day_en]['km_entry']
+                    
+                    total_hours_entry.delete(0, ctk.END)
+                    total_hours_entry.insert(0, str(data.get('total_hours', 0)))
+                    
+                    km_entry.delete(0, ctk.END)
+                    km_entry.insert(0, str(data.get('km', 0)))
+
+                    # Populate activities
+                    for activity in data.get('activities', []):
+                        self.add_activity_row(day_en, activity)
+            
+            # After loading, recalculate the total hours for the entire week
+            self.calculate_all_working_hours()
+            print(f"Daten erfolgreich aus {file_path} geladen.")
+
+        except (IOError, json.JSONDecodeError) as e:
+            print(f"Fehler beim Laden der Datei: {e}")
+
+    def collect_data(self):
+        """
+        Collects all data from the GUI and returns it in the desired dictionary format.
+        
+        Returns:
+            dict: The final dictionary with all the collected data.
+        """
+        final_data = {}
+        for day_en in self.days_of_week_en:
+            day_data = {}
+            
+            # Get total hours and km from the day_widgets dictionary
+            total_hours_entry = self.day_widgets[day_en].get('total_hours_entry')
+            km_entry = self.day_widgets[day_en].get('km_entry')
+            
+            try:
+                day_data['total_hours'] = float(total_hours_entry.get())
+            except (ValueError, AttributeError):
+                day_data['total_hours'] = 0.0 # Default to 0 if input is not a number or widget not found
+            
+            try:
+                day_data['km'] = float(km_entry.get())
+            except (ValueError, AttributeError):
+                day_data['km'] = 0.0 # Default to 0 if input is not a number or widget not found
+
+            # Collect activity data
+            activities = []
+            for activity_entry_set in self.activity_widgets[day_en]['entries']:
+                try:
+                    activity = {
+                        'type': activity_entry_set['type'].get(),
+                        'start': float(activity_entry_set['start'].get()),
+                        'end': float(activity_entry_set['end'].get()),
+                        'note': activity_entry_set['note'].get()
+                    }
+                    activities.append(activity)
+                except ValueError:
+                    # Skip entries with invalid numerical data
+                    print(f"Skipping an activity for {day_en} due to invalid numerical input.")
+            
+            day_data['activities'] = activities
+            final_data[day_en] = day_data
+            
+        return final_data
+
+    def save_and_print_data(self):
+        """
+        Collects the data, recalculates the weekly hours, and prints it to the console in a nicely formatted way.
+        """
+        self.calculate_all_working_hours() # Ensure the latest total is calculated
+        collected_data = self.collect_data()
+        print("--- Gesammelte Daten ---")
+        print(json.dumps(collected_data, indent=4))
+        print("----------------------")
+        
+    def save_to_json(self):
+        """
+        Collects the data, recalculates the weekly hours, and saves it to a JSON file chosen by the user.
+        """
+        self.calculate_all_working_hours() # Ensure the latest total is calculated
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All Files", "*.*")],
+            title="Daten als JSON speichern"
+        )
+        if file_path:
+            collected_data = self.collect_data()
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(collected_data, f, indent=4, ensure_ascii=False)
+                print(f"Daten erfolgreich in {file_path} gespeichert.")
+            except IOError as e:
+                print(f"Fehler beim Speichern der Datei: {e}")
+
+    def calculate_all_working_hours(self):
+        """
+        Calculates the total working hours from all activities, excluding breaks ('P'),
+        for the entire week and updates the label at the bottom of the window.
+        """
+        collected_data = self.collect_data()
+        total_working_hours = 0.0
+        
+        for day_en, data in collected_data.items():
+            for activity in data.get('activities', []):
+                # Check if the activity is not a 'break'
+                if activity.get('type') != 'P':
+                    start_time = activity.get('start')
+                    end_time = activity.get('end')
+                    # Ensure start and end times are valid numbers before calculating
+                    if isinstance(start_time, (int, float)) and isinstance(end_time, (int, float)):
+                        duration = end_time - start_time
+                        if duration > 0:
+                            total_working_hours += duration
+
+        # Update the label with the new total
+        self.total_hours_label.configure(text=f"Gesamte Arbeitsstunden: {total_working_hours:.2f}")
+        print(f"Gesamte Arbeitsstunden (ohne Pausen): {total_working_hours:.2f}")
+
+    def create_and_show_diagram(self):
+        """
+        Creates a driver's logbook diagram using connected line segments (step plot)
+        and displays it in a separate window.
+        """
+        # Ensure data is up to date before plotting
+        self.calculate_all_working_hours()
+        log_data = self.collect_data()
+
+        # Get metadata from the new input fields
+        monteur = self.monteur_entry.get()
+        
+        # Check if week info is available
+        if not self.date_range or not self.week_number:
+             messagebox.showerror("Fehler", "Bitte geben Sie ein gültiges Startdatum (Montag) ein.")
+             return
+
+        # Determine the number of days with activities to adjust plot size
+        days_with_activities = [day for day in self.days_of_week_en if log_data.get(day) and log_data[day].get('activities')]
+        num_days_to_plot = len(days_with_activities)
+        
+        # If there are no activities to plot, inform the user and exit
+        if num_days_to_plot == 0:
+            messagebox.showinfo("Keine Daten zum Plotten", "Bitte fügen Sie Aktivitäten hinzu, um ein Diagramm zu erstellen.")
+            return
+
+        fig, axes = plt.subplots(num_days_to_plot, 1, figsize=(12, 2.5 * num_days_to_plot), sharex=True)
+        # Ensure axes is an iterable even for a single day
+        if num_days_to_plot == 1:
+            axes = [axes]
+        
+        fig.suptitle(
+            f"Wochenbericht vom {self.date_range}  Monteur: {monteur}  Woche: {self.week_number}\n"
+            f"Bitte um Einhaltung der gesetzlich vorgeschriebenen Mittagspause von 30 min nach 6 Arbeitsstunden!",
+            fontsize=14, y=0.98
+        )
+
+        total_weekly_hours = 0
+
+        for i, day in enumerate(days_with_activities):
+            ax = axes[i]
+            daily_data = log_data.get(day, {'activities': [], 'total_hours': 0, 'km': 0})
+            
+            # Sort activities by start time to ensure correct plotting order
+            sorted_activities = sorted(daily_data['activities'], key=lambda x: x['start'])
+
+            # Plot activities and connect transitions
+            for j, activity in enumerate(sorted_activities):
+                start_time = activity['start']
+                end_time = activity['end']
+                activity_type = activity['type']
+                note = activity.get('note', '')
+
+                y_pos_current = self.activity_mapping.get(activity_type, 0)
+
+                # Plot the horizontal line segment for the activity duration
+                ax.plot([start_time, end_time], [y_pos_current, y_pos_current],
+                        color=self.colors.get(activity_type, 'gray'), linewidth=4, solid_capstyle='butt')
+
+                # Add notes
+                if note:
+                    ax.text(start_time + (end_time - start_time) / 2, y_pos_current + 0.3, note,
+                            ha='center', va='bottom', fontsize=8, color='black')
+
+                # Check for next activity to draw connecting vertical line
+                if j < len(sorted_activities) - 1:
+                    next_activity = sorted_activities[j+1]
+                    next_start_time = next_activity['start']
+                    y_pos_next = self.activity_mapping.get(next_activity['type'], 0)
+
+                    # If the next activity starts exactly where the current one ends
+                    if end_time == next_start_time:
+                        # Draw a vertical line from current activity's end to next activity's start
+                        # Use a neutral color like black for the connecting line
+                        ax.plot([end_time, next_start_time], [y_pos_current, y_pos_next],
+                                color='black', linewidth=1.5, linestyle='-')
 
 
-    fig.suptitle(
-        f"Wochenbericht vom {logb.weeklylog.date_range}   Monteur: {logb.weeklylog.monteur}   Woche: {logb.weeklylog.week_number}\n"
-        f"Bitte um Einhaltung der gesetzlich vorgeschriebenen Mittagspause von 30 min nach 6 Arbeitsstunden!",
-        fontsize=14, y=0.98
-    )
+            # Set up the Y-axis for activity types
+            ax.set_yticks(list(self.activity_mapping.values()))
+            ax.set_yticklabels(list(self.activity_mapping.keys()))
+            ax.set_ylim(-0.5, len(self.activity_mapping) - 0.5) # Adjust y-limits to center labels
 
-    total_weekly_hours = 0
+            # Set up the X-axis for hours with quarter-hour steps
+            ax.set_xticks(range(0, 25, 1))
+            ax.set_xticks(np.arange(0, 24.25, 0.25), minor=True)
+            ax.set_xlim(0, 24)
+            ax.tick_params(axis='x', length=4, labelbottom=True)
 
-    for i, day in enumerate(logb.days_of_work):
-        ax = axes[i]
-        daily_data = log_data.get(day, {'activities': [], 'total_hours': 0, 'km': 0})
+            # Add grid lines for major ticks (full hours) and minor ticks (quarter hours)
+            ax.grid(axis='x', which='major', linestyle='-', alpha=0.7)
+            ax.grid(axis='x', which='minor', linestyle=':', alpha=0.5)
 
-        # Sort activities by start time to ensure correct plotting order
-        sorted_activities = sorted(daily_data['activities'], key=lambda x: x['start'])
+            # Add day label on the left
+            ax.text(-1.5, (len(self.activity_mapping) - 1) / 2, self.day_mapping.get(day), va='center', ha='right', fontsize=10, weight='bold', rotation=90)
 
-        # Plot activities and connect transitions
-        for j, activity in enumerate(sorted_activities):
-            start_time = activity['start']
-            end_time = activity['end']
-            activity_type = activity['type']
-            note = activity.get('note', '')
+            # Add daily summary (total hours and kilometers)
+            ax.text(24.5, (len(self.activity_mapping) * 2 / 3) - 0.5, f"Std. {daily_data['total_hours']:.2f}", va='center', ha='left', fontsize=10)
+            ax.text(24.5, (len(self.activity_mapping) * 1 / 3) - 0.5, f"km {daily_data['km']:.2f}", va='center', ha='left', fontsize=10)
 
-            y_pos_current = logb.activity_mapping[activity_type]
+            total_weekly_hours += daily_data['total_hours']
 
-            # Plot the horizontal line segment for the activity duration
-            ax.plot([start_time, end_time], [y_pos_current, y_pos_current],
-                    color=logb.colors.get(activity_type, 'gray'), linewidth=4, solid_capstyle='butt')
-
-            # Add notes
-            if note:
-                ax.text(start_time + (end_time - start_time) / 2, y_pos_current + 0.3, note,
-                        ha='center', va='bottom', fontsize=8, color='black')
-
-            # Check for next activity to draw connecting vertical line
-            if j < len(sorted_activities) - 1:
-                next_activity = sorted_activities[j+1]
-                next_start_time = next_activity['start']
-                y_pos_next = logb.activity_mapping[next_activity['type']]
-
-                # If the next activity starts exactly where the current one ends
-                if end_time == next_start_time:
-                    # Draw a vertical line from current activity's end to next activity's start
-                    # Use a neutral color like black for the connecting line
-                    ax.plot([end_time, next_start_time], [y_pos_current, y_pos_next],
-                            color='black', linewidth=1.5, linestyle='-')
+            # Remove spines
+            ax.spines['right'].set_visible(False)
+            ax.spines['top'].set_visible(False)
+            ax.spines['left'].set_visible(False)
+            ax.spines['bottom'].set_visible(False)
 
 
-        # Set up the Y-axis for activity types
-        ax.set_yticks(list(logb.activity_mapping.values()))
-        ax.set_yticklabels(list(logb.activity_mapping.keys()))
-        ax.set_ylim(-0.5, len(logb.activity_mapping) - 0.5) # Adjust y-limits to center labels
+        # Add weekly summary at the bottom
+        fig.text(0.85, 0.02, f"Gesamt-Stunden: {total_weekly_hours:.2f}", ha='right', va='center', fontsize=12, weight='bold')
 
-        # Set up the X-axis for hours with quarter-hour steps
-        # This will set major ticks at every hour (0, 1, 2, ..., 24)
-        ax.set_xticks(range(0, 25, 1))
-        # This will add minor ticks every quarter hour
-        ax.set_xticks(np.arange(0, 24.25, 0.25), minor=True) # Ensure it goes up to 24.0
-        ax.set_xlim(0, 24)
-        ax.tick_params(axis='x', length=4, labelbottom=True) # Show major ticks and labels for x-axis
+        plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+        plt.show()
 
-        # Add grid lines for major ticks (full hours) and minor ticks (quarter hours)
-        ax.grid(axis='x', which='major', linestyle='-', alpha=0.7) # Solid lines for hours
-        ax.grid(axis='x', which='minor', linestyle=':', alpha=0.5) # Dotted lines for quarter hours
+if __name__ == "__main__":
+    app = ActivityLogApp()
+    app.mainloop()
 
-
-        # Add day label on the left
-        ax.text(-1.5, (len(logb.activity_mapping) - 1) / 2, day, va='center', ha='right', fontsize=10, weight='bold', rotation=90)
-
-        # Add daily summary (total hours and kilometers)
-        ax.text(24.5, (len(logb.activity_mapping) * 2 / 3) - 0.5, f"Std. {daily_data['total_hours']}", va='center', ha='left', fontsize=10)
-        ax.text(24.5, (len(logb.activity_mapping) * 1 / 3) - 0.5, f"km {daily_data['km']}", va='center', ha='left', fontsize=10)
-
-        total_weekly_hours += daily_data['total_hours']
-
-        # Remove spines
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
-        ax.spines['left'].set_visible(False)
-        ax.spines['bottom'].set_visible(False)
-
-
-    # Add weekly summary at the bottom
-    fig.text(0.85, 0.02, f"Gesamt-Stunden: {total_weekly_hours}", ha='right', va='center', fontsize=12, weight='bold')
-
-    plt.tight_layout(rect=[0, 0.05, 1, 0.95]) # Adjust layout to make space for suptitle and bottom text
-    plt.show()
-
-# Example Usage with some dummy data (same as before)
-example_log_data = {
-    'Monday': {
-        'activities': [
-            {'type': 'F', 'start': 6, 'end': 8.5, 'note': 'Route A'},
-            {'type': 'A', 'start': 8.5, 'end': 9.5, 'note': 'Work 1'},
-            {'type': 'F', 'start': 9.5, 'end': 11.5, 'note': 'Route B'},
-            {'type': 'P', 'start': 11.5, 'end': 12, 'note': 'brake'},
-            {'type': 'A', 'start': 12, 'end': 14, 'note': 'Work 3'},
-            {'type': 'F', 'start': 14, 'end':16.5, 'note': 'drive home'}
-        ],
-        'total_hours': 18,
-        'km': 396
-    },
-    'Tuesday': {
-        'activities': [
-            {'type': 'A', 'start': 7, 'end': 8, 'note': 'Pre-trip check'},
-            {'type': 'F', 'start': 8, 'end': 12, 'note': 'Delivery 1'},
-            {'type': 'P', 'start': 12, 'end': 12.5, 'note': 'Short break'},
-            {'type': 'F', 'start': 12.5, 'end': 16, 'note': 'Delivery 2'},
-            {'type': 'A', 'start': 16, 'end': 17, 'note': 'Paperwork'}
-        ],
-        'total_hours': 10,
-        'km': 361
-    },
-    'Wednesday': {
-        'activities': [
-            {'type': 'A', 'start': 6, 'end': 7.5, 'note': 'Loading'},
-            {'type': 'F', 'start': 7.5, 'end': 12.5, 'note': 'Long haul'},
-            {'type': 'P', 'start': 12.5, 'end': 13.5, 'note': 'Mandatory break'},
-            {'type': 'F', 'start': 13.5, 'end': 16.5, 'note': 'Unloading'},
-            {'type': 'A', 'start': 16.5, 'end': 17.5, 'note': 'Cleaning'}
-        ],
-        'total_hours': 11.5,
-        'km': 250
-    },
-    'Thursday': {
-        'activities': [
-            {'type': 'A', 'start': 7, 'end': 8},
-            {'type': 'F', 'start': 8, 'end': 12, 'note': 'City routes'},
-            {'type': 'P', 'start': 12, 'end': 13},
-            {'type': 'F', 'start': 13, 'end': 17, 'note': 'Suburban delivery'},
-            {'type': 'A', 'start': 17, 'end': 18}
-        ],
-        'total_hours': 12,
-        'km': 388
-    },
-    'Friday': {
-        'activities': [
-            {'type': 'A', 'start': 8, 'end': 9},
-            {'type': 'F', 'start': 9, 'end': 12},
-            {'type': 'P', 'start': 12, 'end': 12.5},
-            {'type': 'F', 'start': 12.5, 'end': 15},
-            {'type': 'A', 'start': 15, 'end': 16}
-        ],
-        'total_hours': 7,
-        'km': 376
-    },
-    'Saturday': {
-        'activities': [],
-        'total_hours': 0,
-        'km': 0
-    },
-    'Sunday': {
-        'activities': [],
-        'total_hours': 0,
-        'km': 1
-    }
-}
-
-create_driver_logbook_step_diagram(example_log_data)
